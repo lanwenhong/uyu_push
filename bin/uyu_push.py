@@ -26,24 +26,27 @@ class PushHandler(tornado.web.RequestHandler):
         return self.post()
 
     def post(self):
+        start = int(time.time() * 1000000)
         dev = self.get_argument("dev", None)
         msg = self.get_argument("msg", None)
         if not dev or not msg:
             log.warn("param err")
-            log.info("func=push|dev=%s|msg=%s|status=fail|ret=%s", dev, msg, error(UAURET.PUSHDEVERR))
+            end = int(time.time() * 1000000)
+            log.info("func=push|dev=%s|msg=%s|status=fail|ret=%s|time=%d", dev, msg, error(UAURET.PUSHDEVERR), end-start)
             self.write(error(UAURET.PUSHDEVERR))
         client = WsHandler.clients.get(dev, None)
         if not client:
             log.warn("dev %s offline", dev)
             self.write(error(UAURET.PUSHCONNERR))
-            log.info("func=push|dev=%s|msg=%s|status=fail|ret=%s", dev, msg, error(UAURET.PUSHCONNERR))
+            end = int(time.time() * 1000000)
+            log.info("func=push|dev=%s|msg=%s|status=fail|ret=%s|time=%d", dev, msg, error(UAURET.PUSHCONNERR), end-start)
             return
 
-        start = int(time.time()) * 1000000
         client.write_message(msg)
         self.write(success({}))
-        end = int(time.time()) * 1000000 
-        log.info("func=push|dev=%s|msg=%s|status=succ|ret=%s", dev, msg, success({}))
+        end = int(time.time() * 1000000)
+        log.debug("start: %d end: %d", start, end)
+        log.info("func=push|dev=%s|msg=%s|status=succ|ret=%s|time=%d", dev, msg, success({}), end-start)
 
 class WsHandler(websocket.WebSocketHandler):
     clients = {} 
