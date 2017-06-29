@@ -8,10 +8,12 @@ from zbase.base import logger
 import config
 import json
 import time
+import tornadoredis
 import tornado.httpserver
 import tornado.web
 import tornado.ioloop
 from tornado import websocket
+from tornado import gen
 
 from uyubase.base.response import success, error, UAURET
 
@@ -20,11 +22,14 @@ if config.LOGFILE:
 else:
     log = logger.install('stdout')
 
+c = tornadoredis.Client(host=config.host, port=config.port, selected_db=config.selected_db)
 
 class PushHandler(tornado.web.RequestHandler):
+    @gen.coroutine
     def get(self):
         return self.post()
 
+    @gen.coroutine
     def post(self):
         dev = self.get_argument("dev", None)
         msg = self.get_argument("msg", None)
@@ -44,6 +49,11 @@ class PushHandler(tornado.web.RequestHandler):
         self.write(success({}))
         end = int(time.time()) * 1000000 
         log.info("func=push|dev=%s|msg=%s|status=succ|ret=%s", dev, msg, success({}))
+
+    @gen.coroutine
+    def get_token_value(self, token):
+        value = yield gen.Task(c.get, token)
+        raise gen.Return(value)
 
 class WsHandler(websocket.WebSocketHandler):
     clients = {} 
