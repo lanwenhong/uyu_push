@@ -88,7 +88,7 @@ if __name__ == '__main__':
     app = tornado.web.Application(
         handlers=[
             (r"/v1/msg/push", PushHandler),
-            (r"/v1/msg/wait", WsHandler)
+            (r"/v1/msg/connect", WsHandler)
         ],
         debug = False,
     )
