@@ -8,7 +8,7 @@ def push():
     #x = {"dev": "98:D3:32:70:DB:75", "msg": "rinidaye"}
     
     msg = {'msgid': 111111, 'type': 'train', 'data': {'id': 111}}
-    x = {"token": 'xxxxxxxxxxxxxx', 'msg': json.dumps(msg)}
+    x = {"token": '9090', 'msg': json.dumps(msg)}
 
     post_data = urllib.urlencode(x)
     re = urllib2.urlopen(url, post_data)

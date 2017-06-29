@@ -24,7 +24,7 @@ else:
 
 class PushHandler(tornado.web.RequestHandler):
     key_need = {
-            'push': ('msg_id', 'type', 'data'),
+            'push': ('msgid', 'type', 'data'),
     }
 
     def get(self):
@@ -58,11 +58,12 @@ class PushHandler(tornado.web.RequestHandler):
             else:
                 msg_q = push_to["msg_q"]
                 msg_q.append(msg_id)
-                WsHandler.msgs[msg_id] = {"push_time": None, "msg": msg_body, "push_count": 0}
+                WsHandler.msgs[msg_id] = {"create_time": time.time(), "push_time": None, "msg": msg_body, "push_count": 0, "succ": False}
             
             self.write(success({}))
         except:
             log.warn(traceback.format_exc())
+            self.write(error(UAURET.PUSHDEVERR))
 
 class WsHandler(websocket.WebSocketHandler):
     clients = {} 
@@ -85,23 +86,36 @@ class WsHandler(websocket.WebSocketHandler):
         try:
             log.debug("====push===")
             loop = ioloop.IOLoop.current()
-            self.msg_push = loop.add_timeout(loop.time() + 1, self._msg_push)
+            self.msg_push = loop.add_timeout(loop.time() + config.scan_token_msg_q_interval, self._msg_push)
             msg_q = WsHandler.clients[self.token]['msg_q'] 
             if len(msg_q) == 0:
                 log.debug("token %s msg_q empty", self.token)
                 return
             msg_id = msg_q.pop(0)
+            log.debug("msg_id: %d", msg_id)
             msg_info =  WsHandler.msgs[msg_id]
             push_count = msg_info["push_count"]
+            ctime = int(msg_info["create_time"])
             msg = msg_info["msg"]
+            succ = msg_info["succ"]
 
-            if push_count == 0 or (push_count < 3 and int(time.time()) - int(msg_info["push_time"]) >= 10):
+            if succ:
+                del WsHandler.msgs[msg_id]
+                return
+            if push_count == 0 or (int(time.time()) - ctime < config.msg_ttl and int(time.time()) - int(msg_info["push_time"]) >= config.msg_push_interval):
                 self.write_message(msg)
                 msg_info["push_count"] += 1
                 msg_info["push_time"] = time.time()
                 msg_q.append(msg_id)
-            else:
+                log.debug("qlen: %d",   len(msg_q))
+                log.debug("qlen: %d",   len(WsHandler.clients[self.token]['msg_q']))
+                log.info('func=push|ctime=%d|push_count=%d|push_time=%d|token=%s|msgid=%d', ctime, msg_info["push_count"], msg_info["push_time"], self.token, msg_id)
+            elif int(time.time()) - ctime >= config.msg_ttl:
+                log.info('func=push_expire|ctime=%d|push_count=%d|push_time=%d|token=%s|msgid=%d', ctime, msg_info["push_count"], msg_info["push_time"], self.token, msg_id)
                 del WsHandler.msgs[msg_id]
+            else:
+                 msg_q.append(msg_id)
+                
         except:
             log.warning(traceback.format_exc())
 
@@ -117,7 +131,7 @@ class WsHandler(websocket.WebSocketHandler):
         #每个auth后的连接，定时器每隔1s从推送队列中取出消息进行推送
         self.msg_push = None
 
-        self.check_auth = loop.add_timeout(loop.time() + 30, self._check_auth)
+        self.check_auth = loop.add_timeout(loop.time() + config.auth_time, self._check_auth)
         
     def _proto_check(self, cdata):
         type = cdata.get("type", None)  
@@ -128,7 +142,7 @@ class WsHandler(websocket.WebSocketHandler):
             return False
         result = cdata.get("result", None)
         if result:
-            need = check['auth']
+            need = check['ack']
             for key in need:
                 if not cdata.get(key, None):
                     return False
@@ -141,12 +155,20 @@ class WsHandler(websocket.WebSocketHandler):
                     return False
         return True
             
-    def _ack_handler(self, result):
-        pass
-
+    def _ack_handler(self, cdata):
+        result = cdata["result"]
+        msgid = cdata["msgid"]
+        msg_info =  WsHandler.msgs[msgid]
+        ctime = msg_info["create_time"]
+        if result == UAURET.OK:
+            msg_id = cdata["msgid"]
+            WsHandler.msgs[msg_id]['succ'] = True
+        log.info("func=push_ack|token=%s|ctime=%d|push_count=%d|msgid=%d|time=%d", self.token, int(ctime),  msg_info["push_count"], msgid, int(time.time() * 1000000) - int(ctime * 1000000))
+        
     def _auth_ret(self, cdata):
-        ret = {"msgid": cdata["msgid"], "type": cdata["type"], "result": "0000"}
+        ret = {"msgid": cdata["msgid"], "type": cdata["type"], "result": UAURET.OK}
         self.write_message(json.dumps(ret))
+        log.info("func=auth|in=%s|out=%s", cdata, ret)
 
     def on_message(self, message):
         try:
@@ -174,12 +196,10 @@ class WsHandler(websocket.WebSocketHandler):
 
             #推送inspect应答
             elif type == 'inspect':
-                result = cdata['result']
-                self._ack_handler(result)
+                self._ack_handler(cdata)
             #推送train应答
             elif type == 'train':
-                result = cdata['result']
-                self._ack_handler(result)
+                self._ack_handler(cdata)
         except:
             log.warning(traceback.format_exc())
             self.close()
