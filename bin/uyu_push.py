@@ -61,7 +61,8 @@ class PushHandler(tornado.web.RequestHandler):
                 WsHandler.clients[token]['msgs'][msg_id] = {"create_time": time.time(), "push_time": None, "msg": msg_body, "push_count": 0, "succ": False}
             else:
                 msg_q = push_to["msg_q"]
-                msg_q.append(msg_id)
+                #msg_q.append(msg_id)
+                msg_q.insert(0, msg_id)
                 #WsHandler.msgs[msg_id] = {"create_time": time.time(), "push_time": None, "msg": msg_body, "push_count": 0, "succ": False}
                 WsHandler.clients[token]['msgs'][msg_id] = {"create_time": time.time(), "push_time": None, "msg": msg_body, "push_count": 0, "succ": False}
             
