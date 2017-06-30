@@ -82,25 +82,9 @@ class WsHandler(websocket.WebSocketHandler):
     def check_origin(self, origin):
         return True
     
-    #def _close_pre(self):
-    #    loop = ioloop.IOLoop.current()
-    #    if self.check_auth:
-    #        loop.remove_timeout(self.check_auth)
-    #    if self.msg_push:
-    #        loop.remove_timeout(self.msg_push)
-    #    if self.token:
-    #        xtoken = WsHandler.clients.get(self.token, None)
-    #        if xtoken:
-    #            xtoken['conn'] = None
-
-    #def _ws_close(self):
-    #    self._close_pre()
-    #    self.close()
-
     def _check_auth(self):
         if not self.is_auth:
             log.warn("not auth close")
-            #self._ws_close()
             self.close()
     
     def _msg_push(self):
