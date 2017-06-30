@@ -22,4 +22,10 @@ auth_time = 30
 #扫描token的消息队列时间间隔，单位s
 scan_token_msg_q_interval = 1
 #消息过期时间, 单位s
-msg_ttl = 30
+msg_ttl = 20
+#token校验地址
+token_verify_url = 'http://127.0.0.1:8087/v1/token/verify'
+#http connection timeout
+connect_timeout = 5
+#http request timeout
+request_timeout = 4
