@@ -2,7 +2,7 @@
 import os, sys
 HOME = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'bin')
 
-port = 8012
+port = 9015
 host = '127.0.0.1'
 
 LOGFILE = { 
@@ -13,7 +13,7 @@ LOGFILE = {
         }   
     }   
 }
-LOGFILE = None
+# LOGFILE = None
 
 #单条消息推送间隔，单位s
 msg_push_interval = 10

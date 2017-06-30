@@ -8,7 +8,6 @@ from zbase.base import logger
 import config
 import json
 import time
-import tornadoredis
 import tornado.httpserver
 from tornado.httpclient import AsyncHTTPClient
 import tornado.web
@@ -24,7 +23,6 @@ if config.LOGFILE:
 else:
     log = logger.install('stdout')
 
-c = tornadoredis.Client(host=config.host, port=config.port, selected_db=config.selected_db)
 
 class PushHandler(tornado.web.RequestHandler):
     key_need = {
