@@ -219,13 +219,14 @@ class WsHandler(websocket.WebSocketHandler):
                     #    #oldconn._ws_close()
                     #    self.close()
                     #    log.debug('kick old %s', self.token)
-                    oldconn.close()
+                    if oldconn:
+                        oldconn.close()
                     xtoken['conn'] = self
-                    log.warn("xtoken: %s", xtoken)
+                    #log.warn("xtoken: %s", xtoken)
                 else:
                     WsHandler.clients[self.token] = {"conn": self, "msg_q": [], 'msgs': {}}
                 loop = ioloop.IOLoop.current()
-                self.msg_push = loop.add_timeout(loop.time() + 1, self._msg_push)
+                self.msg_push = loop.add_timeout(loop.time() + config.scan_token_msg_q_interval, self._msg_push)
             else:
                 #self._ws_close()
                 self.close()
@@ -260,11 +261,13 @@ class WsHandler(websocket.WebSocketHandler):
                     connect_timeout=config.connect_timeout, request_timeout=config.request_timeout)
 
             #推送inspect应答
-            elif type == 'inspect':
+            elif type == 'inspect' and self.is_auth:
                 self._ack_handler(cdata)
             #推送train应答
-            elif type == 'train':
+            elif type == 'train' and self.is_auth:
                 self._ack_handler(cdata)
+            else:
+                self.close()
         except:
             log.warning(traceback.format_exc())
             self.close()
