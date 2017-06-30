@@ -9,10 +9,12 @@ import config
 import json
 import time
 import tornado.httpserver
+from tornado.httpclient import AsyncHTTPClient
 import tornado.web
 import tornado.ioloop as ioloop
 from tornado import websocket
 import traceback
+import urllib
 
 from uyubase.base.response import success, error, UAURET
 
@@ -76,11 +78,26 @@ class WsHandler(websocket.WebSocketHandler):
     
     def check_origin(self, origin):
         return True
+    
+    def _close_pre(self):
+        loop = ioloop.IOLoop.current()
+        if self.check_auth:
+            loop.remove_timeout(self.check_auth)
+        if self.msg_push:
+            loop.remove_timeout(self.msg_push)
+        if self.token:
+            xtoken = WsHandler.clients.get(self.token, None)
+            if xtoken:
+                xtoken['conn'] = None
+
+    def _ws_close(self):
+        self._close_pre()
+        self.close()
 
     def _check_auth(self):
         if not self.is_auth:
             log.warn("not auth close")
-            self.close()
+            self._ws_close()
     
     def _msg_push(self):
         try:
@@ -131,7 +148,13 @@ class WsHandler(websocket.WebSocketHandler):
         #每个auth后的连接，定时器每隔1s从推送队列中取出消息进行推送
         self.msg_push = None
 
+        self.token = None
+        self.cdata = None
+
         self.check_auth = loop.add_timeout(loop.time() + config.auth_time, self._check_auth)
+        self.httpclient = AsyncHTTPClient()
+
+        #self.close()
         
     def _proto_check(self, cdata):
         type = cdata.get("type", None)  
@@ -165,17 +188,43 @@ class WsHandler(websocket.WebSocketHandler):
             WsHandler.msgs[msg_id]['succ'] = True
         log.info("func=push_ack|token=%s|ctime=%d|push_count=%d|msgid=%d|time=%d", self.token, int(ctime),  msg_info["push_count"], msgid, int(time.time() * 1000000) - int(ctime * 1000000))
         
-    def _auth_ret(self, cdata):
-        ret = {"msgid": cdata["msgid"], "type": cdata["type"], "result": UAURET.OK}
-        self.write_message(json.dumps(ret))
-        log.info("func=auth|in=%s|out=%s", cdata, ret)
+    def auth_ret(self, response):
+        try:
+            if response.code != 200:
+                self._ws_close()
+                return
+            log.debug("body: %s", response.body)
+            vdata = json.loads(response.body)
+            if vdata['respcd'] == UAURET.OK:
+                self.is_auth = True
+            ret = {"msgid": self.cdata["msgid"], "type": self.cdata["type"], "result": vdata['respcd']}
+            self.write_message(json.dumps(ret))
+            log.info("func=auth|in=%s|out=%s|time=%s", self.cdata, ret, response.request_time)
+            if self.is_auth:
+                xtoken = WsHandler.clients.get(self.token, None)
+                if xtoken:
+                    oldconn = xtoken.get('conn', None)
+                    if oldconn:
+                        oldconn._ws_close()
+                        log.debug('kick old %s', self.token)
+                    xtoken['conn'] = self
+                else:
+                    WsHandler.clients[self.token] = {"conn": self, "msg_q": []}
+                loop = ioloop.IOLoop.current()
+                self.msg_push = loop.add_timeout(loop.time() + 1, self._msg_push)
+            else:
+                self._ws_close()
+        except:
+            log.warn(traceback.format_exc())
+            self._ws_close()
 
     def on_message(self, message):
         try:
             cdata = json.loads(message)
             if not self._proto_check(cdata):
                 log.warn("proto err: %s", cdata)
-                self.close()
+                #self.close()
+                self._ws_close()
                 return
 
             type = cdata.get("type") 
@@ -184,15 +233,15 @@ class WsHandler(websocket.WebSocketHandler):
                 token = cdata['data'].get('token', None)
                 if not token:
                     log.warn("auth not have token")
-                    self.close()
+                    #self.close()
+                    self._ws_close()
                     return
-                self.is_auth = True
-                log.debug("cdata: %s", cdata)
+                vdata = {"token": token}
                 self.token = token
-                WsHandler.clients[token] = {"conn": self, "msg_q": []}
-                loop = ioloop.IOLoop.current()
-                self.msg_push = loop.add_timeout(loop.time() + 1, self._msg_push)
-                self._auth_ret(cdata)
+                self.cdata = cdata
+                log.debug("url: %s", config.token_verify_url)
+                self.httpclient.fetch(config.token_verify_url, self.auth_ret, method='POST', body=urllib.urlencode(vdata), 
+                    connect_timeout=config.connect_timeout, request_timeout=config.request_timeout)
 
             #推送inspect应答
             elif type == 'inspect':
@@ -202,16 +251,14 @@ class WsHandler(websocket.WebSocketHandler):
                 self._ack_handler(cdata)
         except:
             log.warning(traceback.format_exc())
-            self.close()
+            #self.close()
+            self._ws_close()
         
     def on_close(self):
         # 客户端主动关闭
         #del WsHandler.clients[self.dev]
-        loop = ioloop.IOLoop.current()
-        if self.check_auth:
-            loop.remove_timeout(self.check_auth)
-        if self.msg_push:
-            loop.remove_timeout(self.msg_push)
+        self._close_pre()
+        self.close()
         log.info("func=close|dev=%s|stay=%d", self.dev, int(time.time()) * 1000000 - self.connect_time)
 
     def on_pong(self, data):
