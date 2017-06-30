@@ -46,8 +46,8 @@ class PushHandler(tornado.web.RequestHandler):
             push_data = json.loads(msg_body)
             check = PushHandler.key_need['push']
             for item in check:
-                if not push_data[item]:
-                    log.warn("param err")
+                if push_data.get(item, None) == None:
+                    log.warn("param err lack %s", item)
                     self.write(error(UAURET.PUSHDEVERR))
                     return
             msg_id = push_data['msgid']
@@ -117,6 +117,7 @@ class WsHandler(websocket.WebSocketHandler):
             succ = msg_info["succ"]
 
             if succ:
+                log.debug("push msgid %d succ!!!", msg_id)
                 del WsHandler.msgs[msg_id]
                 return
             if push_count == 0 or (int(time.time()) - ctime < config.msg_ttl and int(time.time()) - int(msg_info["push_time"]) >= config.msg_push_interval):
@@ -131,7 +132,8 @@ class WsHandler(websocket.WebSocketHandler):
                 log.info('func=push_expire|ctime=%d|push_count=%d|push_time=%d|token=%s|msgid=%d', ctime, msg_info["push_count"], msg_info["push_time"], self.token, msg_id)
                 del WsHandler.msgs[msg_id]
             else:
-                 msg_q.append(msg_id)
+                log.debug("msgid %s not target throw to q", msg_id)
+                msg_q.append(msg_id)
                 
         except:
             log.warning(traceback.format_exc())
@@ -167,14 +169,14 @@ class WsHandler(websocket.WebSocketHandler):
         if result:
             need = check['ack']
             for key in need:
-                if not cdata.get(key, None):
+                if  cdata.get(key, None) == None:
                     return False
         else:
             need = check['req']
             log.debug("need: %s", need)
             for key in need:
                 log.debug("key: %s", key)
-                if not cdata.get(key, None):
+                if cdata.get(key, None) == None:
                     return False
         return True
             
