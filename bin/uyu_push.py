@@ -11,9 +11,9 @@ import time
 import tornadoredis
 import tornado.httpserver
 import tornado.web
-import tornado.ioloop
+import tornado.ioloop as ioloop
 from tornado import websocket
-from tornado import gen
+import traceback
 
 from uyubase.base.response import success, error, UAURET
 
@@ -25,70 +25,196 @@ else:
 c = tornadoredis.Client(host=config.host, port=config.port, selected_db=config.selected_db)
 
 class PushHandler(tornado.web.RequestHandler):
-    @gen.coroutine
+    key_need = {
+            'push': ('msgid', 'type', 'data'),
+    }
+
     def get(self):
         return self.post()
 
     @gen.coroutine
     def post(self):
-        dev = self.get_argument("dev", None)
-        msg = self.get_argument("msg", None)
-        if not dev or not msg:
-            log.warn("param err")
-            log.info("func=push|dev=%s|msg=%s|status=fail|ret=%s", dev, msg, error(UAURET.PUSHDEVERR))
+        try:
+            start = int(time.time() * 1000000)
+            msg_body = self.get_argument("msg", None)
+            token = self.get_argument("token", None)
+
+            log.debug("msg_body: %s", msg_body)
+            if not token or not msg_body:
+                log.warn("param err")
+                self.write(error(UAURET.PUSHDEVERR))
+                return
+            push_data = json.loads(msg_body)
+            check = PushHandler.key_need['push']
+            for item in check:
+                if not push_data[item]:
+                    log.warn("param err")
+                    self.write(error(UAURET.PUSHDEVERR))
+                    return
+            msg_id = push_data['msgid']
+            
+            push_to = WsHandler.clients.get(token, None) 
+            if not push_to:
+                log.warn("token %s offline", token)
+                self.write(error(UAURET.PUSHCONNERR))
+                return
+            else:
+                msg_q = push_to["msg_q"]
+                msg_q.append(msg_id)
+                WsHandler.msgs[msg_id] = {"create_time": time.time(), "push_time": None, "msg": msg_body, "push_count": 0, "succ": False}
+            
+            self.write(success({}))
+        except:
+            log.warn(traceback.format_exc())
             self.write(error(UAURET.PUSHDEVERR))
-        client = WsHandler.clients.get(dev, None)
-        if not client:
-            log.warn("dev %s offline", dev)
-            self.write(error(UAURET.PUSHCONNERR))
-            log.info("func=push|dev=%s|msg=%s|status=fail|ret=%s", dev, msg, error(UAURET.PUSHCONNERR))
-            return
-
-        start = int(time.time()) * 1000000
-        client.write_message(msg)
-        self.write(success({}))
-        end = int(time.time()) * 1000000 
-        log.info("func=push|dev=%s|msg=%s|status=succ|ret=%s", dev, msg, success({}))
-
-    @gen.coroutine
-    def get_token_value(self, token):
-        value = yield gen.Task(c.get, token)
-        raise gen.Return(value)
 
 class WsHandler(websocket.WebSocketHandler):
     clients = {} 
+    msgs = {}
+    key_need = {
+            'auth': {'req': ('msgid', 'type', 'data'), 'ack': ('msgid', 'type', 'result')},
+            'train': {'req': ('msgid', 'type', 'data'), 'ack': ('msgid', 'type', 'result'),},
+            'inspect': {'req': ('msgid', 'type', 'data'), 'ack': ('msgid', 'type', 'result'),},
+    }
     
     def check_origin(self, origin):
         return True
 
+    def _check_auth(self):
+        if not self.is_auth:
+            log.warn("not auth close")
+            self.close()
+    
+    def _msg_push(self):
+        try:
+            log.debug("====push===")
+            loop = ioloop.IOLoop.current()
+            self.msg_push = loop.add_timeout(loop.time() + config.scan_token_msg_q_interval, self._msg_push)
+            msg_q = WsHandler.clients[self.token]['msg_q'] 
+            if len(msg_q) == 0:
+                log.debug("token %s msg_q empty", self.token)
+                return
+            msg_id = msg_q.pop(0)
+            log.debug("msg_id: %d", msg_id)
+            msg_info =  WsHandler.msgs[msg_id]
+            push_count = msg_info["push_count"]
+            ctime = int(msg_info["create_time"])
+            msg = msg_info["msg"]
+            succ = msg_info["succ"]
+
+            if succ:
+                del WsHandler.msgs[msg_id]
+                return
+            if push_count == 0 or (int(time.time()) - ctime < config.msg_ttl and int(time.time()) - int(msg_info["push_time"]) >= config.msg_push_interval):
+                self.write_message(msg)
+                msg_info["push_count"] += 1
+                msg_info["push_time"] = time.time()
+                msg_q.append(msg_id)
+                log.debug("qlen: %d",   len(msg_q))
+                log.debug("qlen: %d",   len(WsHandler.clients[self.token]['msg_q']))
+                log.info('func=push|ctime=%d|push_count=%d|push_time=%d|token=%s|msgid=%d', ctime, msg_info["push_count"], msg_info["push_time"], self.token, msg_id)
+            elif int(time.time()) - ctime >= config.msg_ttl:
+                log.info('func=push_expire|ctime=%d|push_count=%d|push_time=%d|token=%s|msgid=%d', ctime, msg_info["push_count"], msg_info["push_time"], self.token, msg_id)
+                del WsHandler.msgs[msg_id]
+            else:
+                 msg_q.append(msg_id)
+                
+        except:
+            log.warning(traceback.format_exc())
+
     def open(self):
         self.stream.set_nodelay(True)
         self.connect_time = int(time.time()) * 1000000
+        self.is_auth = False
+
+        loop = ioloop.IOLoop.current()
         
-    def on_message(self, message):
-        cdata = json.loads(message)
-        log.debug("cdata: %s", cdata)
-        dev = cdata.get("dev", None)
-        log.debug("dev: %s", dev)
-        if not dev:
-            self.write_message(error(UAURET.PUSHDEVERR))
-            self.close()
-            log.info("func=bind|dev=%s|status=err", dev)
-            return
-        client = WsHandler.clients.get(dev, None)
-        if not client:
-            WsHandler.clients[dev] = self
+        #链接开始，30s不发auth报文， 关闭连接
+        self.check_auth = None
+        #每个auth后的连接，定时器每隔1s从推送队列中取出消息进行推送
+        self.msg_push = None
 
+        self.check_auth = loop.add_timeout(loop.time() + config.auth_time, self._check_auth)
+        
+    def _proto_check(self, cdata):
+        type = cdata.get("type", None)  
+        if not type:
+            return False
+        check = WsHandler.key_need.get(type, None)
+        if not check:
+            return False
+        result = cdata.get("result", None)
+        if result:
+            need = check['ack']
+            for key in need:
+                if not cdata.get(key, None):
+                    return False
         else:
-            client.close()
-            WsHandler.clients[dev] = self
-        self.dev = dev
-        self.write_message(success({}))
-        log.info("func=bind|dev=%s|status=succ", dev)
+            need = check['req']
+            log.debug("need: %s", need)
+            for key in need:
+                log.debug("key: %s", key)
+                if not cdata.get(key, None):
+                    return False
+        return True
+            
+    def _ack_handler(self, cdata):
+        result = cdata["result"]
+        msgid = cdata["msgid"]
+        msg_info =  WsHandler.msgs[msgid]
+        ctime = msg_info["create_time"]
+        if result == UAURET.OK:
+            msg_id = cdata["msgid"]
+            WsHandler.msgs[msg_id]['succ'] = True
+        log.info("func=push_ack|token=%s|ctime=%d|push_count=%d|msgid=%d|time=%d", self.token, int(ctime),  msg_info["push_count"], msgid, int(time.time() * 1000000) - int(ctime * 1000000))
+        
+    def _auth_ret(self, cdata):
+        ret = {"msgid": cdata["msgid"], "type": cdata["type"], "result": UAURET.OK}
+        self.write_message(json.dumps(ret))
+        log.info("func=auth|in=%s|out=%s", cdata, ret)
 
+    def on_message(self, message):
+        try:
+            cdata = json.loads(message)
+            if not self._proto_check(cdata):
+                log.warn("proto err: %s", cdata)
+                self.close()
+                return
+
+            type = cdata.get("type") 
+            #认证
+            if type == 'auth':
+                token = cdata['data'].get('token', None)
+                if not token:
+                    log.warn("auth not have token")
+                    self.close()
+                    return
+                self.is_auth = True
+                log.debug("cdata: %s", cdata)
+                self.token = token
+                WsHandler.clients[token] = {"conn": self, "msg_q": []}
+                loop = ioloop.IOLoop.current()
+                self.msg_push = loop.add_timeout(loop.time() + 1, self._msg_push)
+                self._auth_ret(cdata)
+
+            #推送inspect应答
+            elif type == 'inspect':
+                self._ack_handler(cdata)
+            #推送train应答
+            elif type == 'train':
+                self._ack_handler(cdata)
+        except:
+            log.warning(traceback.format_exc())
+            self.close()
+        
     def on_close(self):
         # 客户端主动关闭
-        del WsHandler.clients[self.dev]
+        #del WsHandler.clients[self.dev]
+        loop = ioloop.IOLoop.current()
+        if self.check_auth:
+            loop.remove_timeout(self.check_auth)
+        if self.msg_push:
+            loop.remove_timeout(self.msg_push)
         log.info("func=close|dev=%s|stay=%d", self.dev, int(time.time()) * 1000000 - self.connect_time)
 
     def on_pong(self, data):

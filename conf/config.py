@@ -14,8 +14,12 @@ LOGFILE = {
     }   
 }
 LOGFILE = None
-REDIS_CONFIG = {
-    'host': '127.0.0.1',
-    'port': 4600,
-    'selected_db': 0
-}
+
+#单条消息推送间隔，单位s
+msg_push_interval = 10
+#建立连接后，auth完成时间, 单位s
+auth_time = 30
+#扫描token的消息队列时间间隔，单位s
+scan_token_msg_q_interval = 1
+#消息过期时间, 单位s
+msg_ttl = 30
