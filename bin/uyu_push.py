@@ -82,25 +82,26 @@ class WsHandler(websocket.WebSocketHandler):
     def check_origin(self, origin):
         return True
     
-    def _close_pre(self):
-        loop = ioloop.IOLoop.current()
-        if self.check_auth:
-            loop.remove_timeout(self.check_auth)
-        if self.msg_push:
-            loop.remove_timeout(self.msg_push)
-        if self.token:
-            xtoken = WsHandler.clients.get(self.token, None)
-            if xtoken:
-                xtoken['conn'] = None
+    #def _close_pre(self):
+    #    loop = ioloop.IOLoop.current()
+    #    if self.check_auth:
+    #        loop.remove_timeout(self.check_auth)
+    #    if self.msg_push:
+    #        loop.remove_timeout(self.msg_push)
+    #    if self.token:
+    #        xtoken = WsHandler.clients.get(self.token, None)
+    #        if xtoken:
+    #            xtoken['conn'] = None
 
-    def _ws_close(self):
-        self._close_pre()
-        self.close()
+    #def _ws_close(self):
+    #    self._close_pre()
+    #    self.close()
 
     def _check_auth(self):
         if not self.is_auth:
             log.warn("not auth close")
-            self._ws_close()
+            #self._ws_close()
+            self.close()
     
     def _msg_push(self):
         try:
@@ -199,7 +200,8 @@ class WsHandler(websocket.WebSocketHandler):
     def auth_ret(self, response):
         try:
             if response.code != 200:
-                self._ws_close()
+                #self._ws_close()
+                self.close()
                 return
             log.debug("body: %s", response.body)
             vdata = json.loads(response.body)
@@ -212,27 +214,33 @@ class WsHandler(websocket.WebSocketHandler):
                 xtoken = WsHandler.clients.get(self.token, None)
                 if xtoken:
                     oldconn = xtoken.get('conn', None)
-                    if oldconn:
-                        oldconn._ws_close()
-                        log.debug('kick old %s', self.token)
+                    #log.warn("==========oldconn %s", oldconn)
+                    #if oldconn:
+                    #    #oldconn._ws_close()
+                    #    self.close()
+                    #    log.debug('kick old %s', self.token)
+                    oldconn.close()
                     xtoken['conn'] = self
+                    log.warn("xtoken: %s", xtoken)
                 else:
                     WsHandler.clients[self.token] = {"conn": self, "msg_q": [], 'msgs': {}}
                 loop = ioloop.IOLoop.current()
                 self.msg_push = loop.add_timeout(loop.time() + 1, self._msg_push)
             else:
-                self._ws_close()
+                #self._ws_close()
+                self.close()
         except:
             log.warn(traceback.format_exc())
-            self._ws_close()
+            #self._ws_close()
+            self.close()
 
     def on_message(self, message):
         try:
             cdata = json.loads(message)
             if not self._proto_check(cdata):
                 log.warn("proto err: %s", cdata)
-                #self.close()
-                self._ws_close()
+                self.close()
+                #self._ws_close()
                 return
 
             type = cdata.get("type") 
@@ -241,8 +249,8 @@ class WsHandler(websocket.WebSocketHandler):
                 token = cdata['data'].get('token', None)
                 if not token:
                     log.warn("auth not have token")
-                    #self.close()
-                    self._ws_close()
+                    self.close()
+                    #self._ws_close()
                     return
                 vdata = {"token": token}
                 self.token = token
@@ -259,15 +267,28 @@ class WsHandler(websocket.WebSocketHandler):
                 self._ack_handler(cdata)
         except:
             log.warning(traceback.format_exc())
-            #self.close()
-            self._ws_close()
+            self.close()
+            #self._ws_close()
         
     def on_close(self):
         # 客户端主动关闭
         #del WsHandler.clients[self.dev]
-        self._close_pre()
-        self.close()
-        log.info("func=close|dev=%s|stay=%d", self.dev, int(time.time()) * 1000000 - self.connect_time)
+        try:
+            #self._close_pre()
+            #self.close()
+            loop = ioloop.IOLoop.current()
+            if self.check_auth:
+                loop.remove_timeout(self.check_auth)
+            if self.msg_push:
+                loop.remove_timeout(self.msg_push)
+            #if self.token:
+            #    xtoken = WsHandler.clients.get(self.token, None)
+            #    if xtoken:
+            #        xtoken['conn'] = None
+            log.info("func=close|token=%s|stay=%d", self.token, int(time.time()) * 1000000 - self.connect_time)
+        except:
+            log.warn(traceback.format_exc())
+
 
     def on_pong(self, data):
         log.info("func=pong|data=%s", data)

@@ -21,9 +21,9 @@ def wait():
         print "recv msg ", ret
         ret_x = json.loads(ret)
 
-        s = {"msgid": ret_x["msgid"], "result": "0000", "type": ret_x["type"]}
-        s_x = json.dumps(s)
-        ws.send(s_x)
+        #s = {"msgid": ret_x["msgid"], "result": "0000", "type": ret_x["type"]}
+        #s_x = json.dumps(s)
+        #ws.send(s_x)
 
 
 if __name__ == '__main__':
