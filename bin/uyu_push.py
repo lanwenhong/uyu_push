@@ -204,7 +204,6 @@ class WsHandler(websocket.WebSocketHandler):
         ctime = msg_info["create_time"]
         if result == UAURET.OK:
             msg_id = cdata["msgid"]
-            #WsHandler.msgs[msg_id]['succ'] = True
             msg_info['succ'] = True
         log.info("func=push_ack|token=%s|ctime=%d|push_count=%d|msgid=%d|time=%d", self.token, int(ctime),  msg_info["push_count"], msgid, int(time.time() * 1000000) - int(ctime * 1000000))
         
@@ -243,7 +242,6 @@ class WsHandler(websocket.WebSocketHandler):
             if not self._proto_check(cdata):
                 log.warn("proto err: %s", cdata)
                 self.close()
-                #self._ws_close()
                 return
 
             type = cdata.get("type") 
@@ -253,7 +251,6 @@ class WsHandler(websocket.WebSocketHandler):
                 if not token:
                     log.warn("auth not have token")
                     self.close()
-                    #self._ws_close()
                     return
                 vdata = {"token": token}
                 self.token = token
@@ -273,23 +270,15 @@ class WsHandler(websocket.WebSocketHandler):
         except:
             log.warning(traceback.format_exc())
             self.close()
-            #self._ws_close()
         
     def on_close(self):
         # 客户端主动关闭
-        #del WsHandler.clients[self.dev]
         try:
-            #self._close_pre()
-            #self.close()
             loop = ioloop.IOLoop.current()
             if self.check_auth:
                 loop.remove_timeout(self.check_auth)
             if self.msg_push:
                 loop.remove_timeout(self.msg_push)
-            #if self.token:
-            #    xtoken = WsHandler.clients.get(self.token, None)
-            #    if xtoken:
-            #        xtoken['conn'] = None
             log.info("func=close|token=%s|stay=%d", self.token, int(time.time()) * 1000000 - self.connect_time)
         except:
             log.warn(traceback.format_exc())
