@@ -7,9 +7,9 @@ def push():
     url = "http://127.0.0.1:8011/v1/msg/push"
     #x = {"dev": "98:D3:32:70:DB:75", "msg": "rinidaye"}
    
-    for i in xrange (10, 20):
+    for i in xrange (10, 11):
         msg = {'msgid': i, 'type': 'train', 'data': {'id': 111}}
-        x = {"token": 'd5872ece-433f-451c-b4cf-fca97f759489', 'msg': json.dumps(msg)}
+        x = {"token": 'f6a8d4ca-2fee-40cc-bd83-16a48ea17fcd', 'msg': json.dumps(msg)}
 
         post_data = urllib.urlencode(x)
         re = urllib2.urlopen(url, post_data)

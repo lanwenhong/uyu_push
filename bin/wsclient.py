@@ -6,7 +6,7 @@ from websocket import create_connection
 
 def wait():
     ws = create_connection("ws://127.0.0.1:8011/v1/msg/wait")
-    msg = {"msgid": 11111, "type": "auth", "data": {"token": "d5872ece-433f-451c-b4cf-fca97f759489"}}
+    msg = {"msgid": 11111, "type": "auth", "data": {"token": "f6a8d4ca-2fee-40cc-bd83-16a48ea17fcd"}}
     #dev_bind = {"token": "98:D3:32:70:DB:75"}
     ws.send(json.dumps(msg))
     
