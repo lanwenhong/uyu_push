@@ -20,17 +20,15 @@ import urllib
 from uyubase.base.response import success, error, UAURET
 
 if config.LOGFILE:
-    log = logger.install(config.LOGFILE)
+    log = logger.install(config.LOGFILE, when='MIDNIGHT')
 else:
     log = logger.install('stdout')
-
 
 class PushHandler(tornado.web.RequestHandler):
     key_need = {
             'push': ('msgid', 'type', 'data'),
     }
     
-
     def get(self):
         return self.post()
     
@@ -217,7 +215,8 @@ class WsHandler(websocket.WebSocketHandler):
             if vdata['respcd'] == UAURET.OK:
                 self.is_auth = True
             ret = {"msgid": self.cdata["msgid"], "type": self.cdata["type"], "result": vdata['respcd']}
-            self.write_message(json.dumps(ret))
+            ret_str = json.dumps(ret)
+            self.write_message(ret_str)
             log.info("func=auth|in=%s|out=%s|time=%s", self.cdata, ret, response.request_time)
             if self.is_auth:
                 xtoken = WsHandler.clients.get(self.token, None)
@@ -238,7 +237,9 @@ class WsHandler(websocket.WebSocketHandler):
 
     def on_message(self, message):
         try:
+            log.debug('func=on_message|in=%s', message)
             cdata = json.loads(message)
+            self.cdata = cdata
             if not self._proto_check(cdata):
                 log.warn("proto err: %s", cdata)
                 self.close()
@@ -254,7 +255,6 @@ class WsHandler(websocket.WebSocketHandler):
                     return
                 vdata = {"token": token}
                 self.token = token
-                self.cdata = cdata
                 log.debug("url: %s", config.token_verify_url)
                 self.httpclient.fetch(config.token_verify_url, self.auth_ret, method='POST', body=urllib.urlencode(vdata), 
                     connect_timeout=config.connect_timeout, request_timeout=config.request_timeout)
@@ -270,6 +270,8 @@ class WsHandler(websocket.WebSocketHandler):
         except:
             log.warning(traceback.format_exc())
             self.close()
+        finally:
+            log.info("func=recv|msg=%s", message)
         
     def on_close(self):
         # 客户端主动关闭
@@ -291,7 +293,7 @@ if __name__ == '__main__':
     app = tornado.web.Application(
         handlers=[
             (r"/v1/msg/push", PushHandler),
-            (r"/v1/msg/wait", WsHandler)
+            (r"/v1/msg/connect", WsHandler)
         ],
         debug = False,
     )
